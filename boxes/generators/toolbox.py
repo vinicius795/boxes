@@ -15,8 +15,73 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import math
+from contextlib import contextmanager
 
 from boxes import *
+
+
+class FingerJointPositivePlayEdge(edges.FingerJointEdge):
+    """Finger joint edge that also shrinks tabs according to play."""
+
+    char = "x"
+    description = "Finger joint (male) with play compensation"
+
+    def __call__(self, length, bedBolts=None, bedBoltSettings=None, **kw):
+        with self._positive_play_adjustment():
+            return super().__call__(length, bedBolts=bedBolts, bedBoltSettings=bedBoltSettings, **kw)
+
+    @contextmanager
+    def _positive_play_adjustment(self):
+        play = max(0.0, getattr(self.settings, "play", 0.0))
+        original_space = self.settings.space
+        original_finger = self.settings.finger
+        # avoid negative finger widths
+        effective = min(play, max(0.0, original_finger - 0.1 * self.settings.thickness))
+        if effective <= 0.0:
+            yield
+            return
+
+        self.settings.space = original_space + effective
+        self.settings.finger = original_finger - effective
+        try:
+            yield
+        finally:
+            self.settings.space = original_space
+            self.settings.finger = original_finger
+
+
+class FingerJointDividerEdge(FingerJointPositivePlayEdge):
+    """Finger joint edge that also cuts divider slots."""
+
+    char = "w"
+    description = "Finger joint with parallel divider slots"
+
+    def __init__(self, boxes, settings=None) -> None:
+        super().__init__(boxes, settings)
+        self._fingerholes = getattr(boxes, "fingerHolesAt", None)
+
+    def __call__(self, length, bedBolts=None, bedBoltSettings=None, **kw):
+        with self._positive_play_adjustment():
+            self._render_divider_holes(length, bedBolts, bedBoltSettings)
+            super(FingerJointPositivePlayEdge, self).__call__(length, bedBolts=bedBolts,
+                                                              bedBoltSettings=bedBoltSettings, **kw)
+
+    def _render_divider_holes(self, length, bedBolts, bedBoltSettings) -> None:
+        fingerholes = self._fingerholes
+        if fingerholes is None or getattr(fingerholes, "settings", None) is None:
+            return
+
+        offset = getattr(self.boxes, "divider_hole_offset", 0.0)
+        try:
+            offset = float(offset)
+        except (TypeError, ValueError):
+            offset = 0.0
+        dist = fingerholes.settings.edge_width
+        y_offset = self.burn + dist + self.settings.thickness / 2 + offset
+
+        with self.saved_context():
+            fingerholes(0, y_offset, length, 0,
+                        bedBolts=bedBolts, bedBoltSettings=bedBoltSettings)
 
 
 class CustomCabinetHingeEdge(edges.BaseEdge):
@@ -34,6 +99,21 @@ class CustomCabinetHingeEdge(edges.BaseEdge):
     def startwidth(self) -> float:
         return self.settings.thickness if self.top and self.angled else 0.0
 
+    def _handle_profile_requirements(self) -> tuple[float, float, float] | None:
+        """Return (inner_span, required_length, handle_thickness) for the handle fingers."""
+        handle_width = getattr(self.boxes, "handle_width", None)
+        handle_thickness = getattr(self.boxes, "handle_thickness", None)
+        if handle_width is None or handle_thickness is None:
+            return None
+
+        burn = getattr(self.boxes, "burn", 0.0)
+        # Handle.render (lines ~240+) introduces two shoulders, each consuming
+        # burn + (0.5 + burn) millimeters before the finger tabs start.
+        shoulder_allowance = 2.0 * (burn + (0.5 + burn))  # -> 1mm + 4*burn
+        inner_span = max(0.0, handle_width - (2.0 * handle_thickness + shoulder_allowance))
+        required = 2.0 * handle_thickness + inner_span
+        return inner_span, required, handle_thickness
+
     def _hinge_spacing_segment(self, length: float, index: int, total: int, total_length: float) -> None:
         """Draw the straight segment that spaces hinge modules.
 
@@ -47,33 +127,31 @@ class CustomCabinetHingeEdge(edges.BaseEdge):
             return
 
         finger_edge = self.boxes.edges.get('F')
-        handle_width = getattr(self.boxes, "handle_width", None)
-        handle_thickness = getattr(self.boxes, "handle_thickness", None)
+        requirements = self._handle_profile_requirements()
 
-        if finger_edge is None or handle_width is None or handle_thickness is None:
+        if finger_edge is None or requirements is None:
             self.edge(length, tabs=2)
             return
 
-        inner_span = max(0.0, handle_width - handle_thickness)
-        required = 2 * handle_thickness + inner_span
+        inner_span, required, handle_thickness = requirements
         if length < required:
-            # Not enough room for the custom profile, fall back to simple spacing
             self.edge(length, tabs=2)
             return
 
-        edges_spacing = max(0.0, (length - required - 0.5) / 2.0)
+        edges_spacing = max(0.0, (length - required) / 2.0)
 
         self.edge(edges_spacing)
         finger_edge(handle_thickness)
-        self.edge(inner_span + 0.5)
+        self.edge(inner_span)
         finger_edge(handle_thickness)
         self.edge(edges_spacing)
 
     def _should_use_custom_spacing(self, length: float) -> bool:
-        handle_width = getattr(self.boxes, "handle_width", None)
-        if handle_width is None:
+        requirements = self._handle_profile_requirements()
+        if requirements is None:
             return True
-        return length > handle_width
+        _, required, _ = requirements
+        return length >= required
 
     def __poly(self):
         n = self.settings.eyes_per_hinge
@@ -211,10 +289,9 @@ class CustomCabinetHingeEdge(edges.BaseEdge):
         self.moveTo(max(e, 2 * t))
         for i in range(n):
             self.hole(0, e, b / 2.0)
-            
-            self.corner(180,4.5)
+            self.corner(180,e)
             self.moveTo(0,0,-90)
-            self.polyline(*[ t-self.burn, 90, t, -90, t, -90, t, 90, t, 90, t, (90, t)] + corner + [self.burn])
+            self.polyline(*[ t-self.burn, 90, t, -90, t, -90, t, 90, t, 90, t - self.burn, (90, t)] + corner)
             self.moveTo(self.boxes.spacing, 4 * e + 3 * t + self.boxes.spacing, 180)
             if i % 2:
                 self.moveTo(2 * max(e, 2 * t) + 2 * self.boxes.spacing)
@@ -231,14 +308,15 @@ class Handle:
         self.height = height
         self.thickness = thickness
         self.gap = gap
+        self.burn = boxes.burn
 
     def render(self, move: str = "", label: str = "Handle") -> None:
+        burn = self.burn
         h = self.height
         w = self.width
         t = self.thickness
         g = self.gap
-        cr = 0.5
-        
+        cr = 0.5 + burn
 
         if self.width <= 0 or self.height <= 0:
             return
@@ -247,15 +325,19 @@ class Handle:
         if b.move(self.width, self.height, move, before=True, label=label):
             return
 
-        finger_edge = b.edges.get('f')
+        positive_char_getter = getattr(b, "_positive_finger_edge_char", None)
+        finger_char = positive_char_getter() if callable(positive_char_getter) else 'f'
+        finger_edge = b.edges.get(finger_char) or b.edges.get('f')
+        if finger_edge is None:
+            return
         b.moveTo(0, 0)
-        b.polyline(w+cr,[90, t / 2],h-t/2,[90,0])
+        b.polyline(w-t,[90, (t / 2) - burn],h-t/2,[90,0])
         finger_edge(t)
         b.corner(90,0)
-        b.polyline(g-cr,[-90,cr],w-cr-t,[-90,cr],g-cr,90)
+        b.polyline(g-cr,[-90,cr],w - 2*(t+burn+cr),[-90,cr],g-cr,90)
         finger_edge(t)
         b.corner(90,0)
-        b.polyline(h-t/2,[90,t/2])
+        b.polyline(h-t/2,[90,(t / 2) - burn])
         b.ctx.stroke()
 
         b.move(self.width, self.height, move, label=label)
@@ -309,7 +391,7 @@ as internal or external measurements."""
             default=True,
             help="gera a peca de alca (True/False)")
         self.argparser.add_argument(
-            "--handle-height",
+            "--handle_height",
             action="store",
             type=float,
             default=70,
@@ -332,10 +414,23 @@ as internal or external measurements."""
             type=float,
             default=30,
             help="abertura central da alca (gap) em mm")
+        self.argparser.add_argument(
+            "--divider_hole_offset",
+            action="store",
+            type=float,
+            default=None,
+            help="deslocamento vertical (em mm) dos furos do divisor no fundo")
+        self.argparser.add_argument(
+            "--divider_clearance",
+            action="store",
+            type=float,
+            default=None,
+            help="folga adicional (em mm) aplicada nas dimensoes do divisor")
 
     def open(self) -> None:
         super().open()
         self._override_cabinet_hinge_edges()
+        self._register_custom_finger_edges()
     
     def _override_cabinet_hinge_edges(self) -> None:
         base_edge = self.edges.get('u')
@@ -345,6 +440,18 @@ as internal or external measurements."""
         for top, angled in ((False, False), (True, False), (False, True), (True, True)):
             edge = CustomCabinetHingeEdge(self, settings, top=top, angled=angled)
             self.addPart(edge)
+
+    def _register_custom_finger_edges(self) -> None:
+        base_edge = self.edges.get('f')
+        if base_edge is None:
+            return
+        positive_play_edge = FingerJointPositivePlayEdge(self, base_edge.settings)
+        divider_edge = FingerJointDividerEdge(self, base_edge.settings)
+        self.addPart(positive_play_edge)
+        self.addPart(divider_edge)
+
+    def _positive_finger_edge_char(self) -> str:
+        return 'x' if self.edges.get('x') is not None else 'f'
 
     def render(self) -> None:
 
@@ -365,6 +472,16 @@ as internal or external measurements."""
         handle_height = self.handle_height
         handle_thickness = self.handle_thickness
         handle_gap = self.handle_gap
+        divider_clearance = self.divider_clearance
+        if divider_clearance is None:
+            divider_clearance = max(0.0, self.burn)
+        divider_width = x - 2 * divider_clearance
+        divider_height = h - 2 * divider_clearance
+        if divider_width <= 0:
+            divider_width = x
+        if divider_height <= 0:
+            divider_height = h
+        positive_edge_char = self._positive_finger_edge_char()
 
         self.rectangularWall(x, half_height, "FFuF", move="right", label="Lower Wall 1")
         self.rectangularWall(y, half_height, "Ffef", move="up", label="Lower Wall 2")
@@ -373,8 +490,8 @@ as internal or external measurements."""
 
         self.moveTo(-(x + move_spacing), 0)
 
-        self.rectangularWall(x, y, "ffff", move="right", label="Bottom")
-        self.rectangularWall(x, y, "ffff", move="up", label="Top")
+        self._render_bottom_panel(x, y, positive_edge_char)
+        self.rectangularWall(x, y, positive_edge_char * 4, move="up", label="Top")
 
         self.moveTo(-(x + move_spacing), 0)
 
@@ -383,8 +500,20 @@ as internal or external measurements."""
         self.rectangularWall(x, half_height, "eFFF", move="left right", label="Upper Wall 3")
         self.rectangularWall(y, half_height, "efFf", move="up", label="Upper Wall 4")
 
-        self.moveTo(-(x + move_spacing), 0)
+        stacked_height = 2 * half_height + y + 3 * spacing
+        self.moveTo(-(x + move_spacing), stacked_height + spacing)
+
+        # Shrink divider slightly on both axes to keep it from binding.
+        divider_edges = f"{positive_edge_char}eee"
+        self.rectangularWall(divider_width, divider_height, divider_edges, move="right", label="Divider")
+
+        handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
+        handle_piece.render(move="right", label="Handle")
         self.edges['u'].parts(move="right right right ")
 
-        handle_piece = Handle(self, handle_width, handle_height, handle_thickness, handle_gap)
-        handle_piece.render(move="right", label="Handle")
+    def _render_bottom_panel(self, width: float, depth: float, positive_char: str) -> None:
+        """Render bottom panel and include divider slots if the custom edge exists."""
+        fallback_char = positive_char or 'f'
+        edge_char = "w" if self.edges.get('w') is not None else fallback_char
+        edges_string = edge_char + fallback_char * 3
+        self.rectangularWall(width, depth, edges_string, move="right", label="Bottom")
