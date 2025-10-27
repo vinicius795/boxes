@@ -348,6 +348,18 @@ class Latche:
     def __init__(self, boxes: Boxes) -> None:
         self.boxes = boxes
 
+    def sec(self, r= float, c=float, b = float):
+        d= c-b
+        return 2 * math.sqrt(pow(r,2)-pow(d,2))
+    
+    def arcsec(self, r=float,c=float,b=float, x=bool):
+        s = (c-b)/r
+        if x:
+            return math.asin(s)*(180/math.pi)
+        else:
+            return math.acos(s)*(180/math.pi)
+
+
 
     def render(self, move: str = "", label: str = "Latche") -> None:
         b = self.boxes
@@ -355,7 +367,10 @@ class Latche:
         spacing = b.spacing
         width= 0
         height= 0
-        hl = 2*math.sqrt((mt*3)*(mt*3) -144)
+        hl = self.sec(mt*3, 12,0)
+        inner_radius = mt * 2
+        outer_radius = mt * 4
+        radial_offset = outer_radius - inner_radius
 
         b.moveTo(0,0)
         b.polyline(mt, 90,mt,-90,mt,-90,mt,90, mt,90,mt*3,90,mt,90,mt,-90,mt,-90,mt,90,mt,90,mt*3,90)
@@ -365,16 +380,15 @@ class Latche:
         b.moveTo(mt*3 + spacing + mt*2,0)
         width+=mt*3 + spacing + mt*2
         b.circle(0,mt*2, mt*2)
-        b.moveTo(mt/2,mt/2)
-        b.polyline(0,90,mt,-90,mt,90,mt,90,mt,-90,mt,90,mt,90,mt,-90,mt,90,mt,90,mt,-90,mt,90,mt)
-        b.moveTo(-mt/2 + mt*2 + spacing,-mt/2)
-        b.moveTo(mt*4)
-        b.polyline(0,[90,mt*2],hl/2,-90)
-        b.moveTo(-mt*2,-mt*3-hl/2)
-        b.polyline(0,[360,mt*3])
-        print(hl)
-        
-
+        b.moveTo(-mt/2,mt*1.5,90)
+        b.polyline(0,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt)
+        b.moveTo(-mt*1.5,-(mt*3 + spacing+mt*2),-90)
+        #b.moveTo(0,0,180)
+        #b.polyline(0, [-90,mt*2],hl/2,[-90,hl/2])
+        b.polyline(0,[90,mt*2],hl/2,self.arcsec(mt*4, mt*4,hl/2,False),0,[self.arcsec(mt*4, mt*4,hl/2,True),mt*4])
+        b.moveTo(0,0,-90)
+        b.polyline(mt,-90, mt*2)
+        #b.polyline(0,[360,mt*3])
         b.ctx.stroke()
 
         #b.move(width, height, move, label=label)
@@ -522,12 +536,15 @@ as internal or external measurements."""
         self.moveTo(-(x + move_spacing), stacked_height + spacing)
 
         # Shrink divider slightly on both axes to keep it from binding.
-        divider_edges = f"{positive_edge_char}eee"
-        self.rectangularWall(divider_width, divider_height, divider_edges, move="right", label="Divider")
+        #divider_edges = f"{positive_edge_char}eee"
+        #self.rectangularWall(divider_width, divider_height, divider_edges, move="right", label="Divider")
 
-        handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
-        handle_piece.render(move="right", label="Handle")
-        self.edges['u'].parts(move="right right right ")
+        #handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
+        #handle_piece.render(move="right", label="Handle")
+        #self.edges['u'].parts(move="right right right ")
+
+        latche_piece = Latche(self)
+        latche_piece.render()
 
     def _render_bottom_panel(self, width: float, depth: float, positive_char: str) -> None:
         """Render bottom panel and include divider slots if the custom edge exists."""
