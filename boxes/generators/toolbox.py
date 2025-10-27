@@ -263,21 +263,39 @@ class Handle:
 
 class Latche:
 
-    def __init__(self, boxes, settings=None, width: float = 50, height: float = 50) -> None:
-        super().__init__(boxes, settings)
-        self.width = width
-        self.height = height
+    def __init__(self, boxes: Boxes) -> None:
+        self.boxes = boxes
 
-    def render(self, move: str = "", label: str = "Handle"):
+
+    def render(self, move: str = "", label: str = "Latche") -> None:
         b = self.boxes
-        w = self.width
-        h = self.height
-        mt = self.settings.thickness
+        mt = b.thickness
+        spacing = b.spacing
+        width= 0
+        height= 0
+        hl = 2*math.sqrt((mt*3)*(mt*3) -144)
 
+        b.moveTo(0,0)
+        b.polyline(mt, 90,mt,-90,mt,-90,mt,90, mt,90,mt*3,90,mt,90,mt,-90,mt,-90,mt,90,mt,90,mt*3,90)
+        b.moveTo(spacing + mt*3,0)
+        width+=mt*3 + spacing
+        b.polyline(mt*3 ,90,mt*3,90,mt,90,mt*2,-90,mt,-90,mt*2,90,mt,90,mt*3,90)
+        b.moveTo(mt*3 + spacing + mt*2,0)
+        width+=mt*3 + spacing + mt*2
+        b.circle(0,mt*2, mt*2)
+        b.moveTo(mt/2,mt/2)
+        b.polyline(0,90,mt,-90,mt,90,mt,90,mt,-90,mt,90,mt,90,mt,-90,mt,90,mt,90,mt,-90,mt,90,mt)
+        b.moveTo(-mt/2 + mt*2 + spacing,-mt/2)
+        b.moveTo(mt*4)
+        b.polyline(0,[90,mt*2],hl/2,-90)
+        b.moveTo(-mt*2,-mt*3-hl/2)
+        b.polyline(0,[360,mt*3])
+        print(hl)
+        
 
+        b.ctx.stroke()
 
-
-        b.move(self.width, self.height, move, label=label)
+        #b.move(width, height, move, label=label)
     
 
 
@@ -384,7 +402,10 @@ as internal or external measurements."""
         self.rectangularWall(y, half_height, "efFf", move="up", label="Upper Wall 4")
 
         self.moveTo(-(x + move_spacing), 0)
-        self.edges['u'].parts(move="right right right ")
+        #self.edges['u'].parts(move="right right right ")
+#
+        #handle_piece = Handle(self, handle_width, handle_height, handle_thickness, handle_gap)
+        #handle_piece.render(move="right", label="Handle")
 
-        handle_piece = Handle(self, handle_width, handle_height, handle_thickness, handle_gap)
-        handle_piece.render(move="right", label="Handle")
+        latche_piece = Latche(self)
+        latche_piece.render(move="right", label="latch")
