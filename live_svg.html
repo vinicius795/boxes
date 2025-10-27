@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Live SVG</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #fff;
+  }
+
+  object {
+    width: 100%;
+    height: 100%;
+  }
+</style>
+<object id="preview" type="image/svg+xml" data="osciloscopio2.svg"></object>
+<script>
+  const target = document.getElementById('preview');
+  const base = target.getAttribute('data');
+
+  // viewBox original do SVG (ajuste se o arquivo mudar de escala).
+  const BASE_VIEWBOX = {
+    minX: 0,
+    minY: 0,
+    width: 729.5,
+    height: 1113.67,
+  };
+
+  const ZOOM_FACTOR = 10; // Ajuste aqui o quanto deseja ampliar.
+  const OFFSET_X = 100; // Ajuste caso queira deslocar o foco para a direita.
+  const OFFSET_Y =0; // Ajuste caso queira deslocar o foco para baixo.
+
+  const applyZoom = () => {
+    const newWidth = BASE_VIEWBOX.width / ZOOM_FACTOR;
+    const newHeight = BASE_VIEWBOX.height / ZOOM_FACTOR;
+    const newMinX = BASE_VIEWBOX.minX + OFFSET_X;
+    const newMinY = BASE_VIEWBOX.minY + OFFSET_Y;
+    const url = `${base}?t=${Date.now()}#svgView(viewBox(${newMinX} ${newMinY} ${newWidth} ${newHeight}))`;
+    target.setAttribute('data', url);
+  };
+
+  applyZoom();
+  setInterval(applyZoom, 1000);
+</script>
