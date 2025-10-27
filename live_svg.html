@@ -6,39 +6,262 @@
     margin: 0;
     height: 100%;
     background: #fff;
+    color: #222;
+    font-family: system-ui, sans-serif;
+  }
+
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #f2f2f2;
+    border-bottom: 1px solid #ddd;
+  }
+
+  #pickButton {
+    padding: 0.45rem 0.9rem;
+    border-radius: 4px;
+    border: 1px solid #888;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  #pickButton:hover {
+    background: #e9e9e9;
+  }
+
+  #status {
+    flex: 1;
+    min-height: 1.2em;
+    font-size: 0.9rem;
+    color: #444;
+  }
+
+  #viewer {
+    width: 100%;
+    height: calc(100% - 56px);
+    overflow: hidden;
   }
 
   object {
     width: 100%;
     height: 100%;
+    display: none;
   }
 </style>
-<object id="preview" type="image/svg+xml" data="osciloscopio2.svg"></object>
+
+<div id="toolbar">
+  <button id="pickButton" type="button">Selecionar SVG...</button>
+  <span id="status"></span>
+</div>
+<div id="viewer">
+  <object id="preview" type="image/svg+xml"></object>
+</div>
+<input id="fileInput" type="file" accept=".svg,image/svg+xml" hidden>
+
 <script>
-  const target = document.getElementById('preview');
-  const base = target.getAttribute('data');
+  const pickButton = document.getElementById('pickButton');
+  const statusEl = document.getElementById('status');
+  const preview = document.getElementById('preview');
+  const fileInput = document.getElementById('fileInput');
 
-  // viewBox original do SVG (ajuste se o arquivo mudar de escala).
-  const BASE_VIEWBOX = {
-    minX: 0,
-    minY: 0,
-    width: 729.5,
-    height: 1113.67,
+  const REFRESH_INTERVAL_MS = 1000;
+  const ZOOM_FACTOR = 4; // Ajuste o nivel de zoom desejado.
+  const OFFSET_X = 140; // Deslocamento horizontal do recorte.
+  const OFFSET_Y = 40; // Deslocamento vertical do recorte.
+
+  let fileHandle = null;
+  let baseViewBox = null;
+  let lastModified = 0;
+  let currentObjectUrl = null;
+  let refreshTimer = null;
+
+  const supportsFileSystemAccess = () =>
+    typeof window.showOpenFilePicker === 'function';
+
+  const updateStatus = (message) => {
+    statusEl.textContent = message ?? '';
   };
 
-  const ZOOM_FACTOR = 10; // Ajuste aqui o quanto deseja ampliar.
-  const OFFSET_X = 100; // Ajuste caso queira deslocar o foco para a direita.
-  const OFFSET_Y =0; // Ajuste caso queira deslocar o foco para baixo.
-
-  const applyZoom = () => {
-    const newWidth = BASE_VIEWBOX.width / ZOOM_FACTOR;
-    const newHeight = BASE_VIEWBOX.height / ZOOM_FACTOR;
-    const newMinX = BASE_VIEWBOX.minX + OFFSET_X;
-    const newMinY = BASE_VIEWBOX.minY + OFFSET_Y;
-    const url = `${base}?t=${Date.now()}#svgView(viewBox(${newMinX} ${newMinY} ${newWidth} ${newHeight}))`;
-    target.setAttribute('data', url);
+  const clearPreview = () => {
+    if (currentObjectUrl) {
+      URL.revokeObjectURL(currentObjectUrl);
+      currentObjectUrl = null;
+    }
+    preview.removeAttribute('data');
+    preview.style.display = 'none';
   };
 
-  applyZoom();
-  setInterval(applyZoom, 1000);
+  const parseViewBox = (value) => {
+    const parts = value.trim().split(/[ ,]+/).map(Number);
+    if (parts.length === 4 && parts.every(Number.isFinite)) {
+      return {
+        minX: parts[0],
+        minY: parts[1],
+        width: parts[2],
+        height: parts[3],
+      };
+    }
+    return null;
+  };
+
+  const ensurePermission = async (handle) => {
+    if (!handle || typeof handle.queryPermission !== 'function') {
+      return true;
+    }
+    const opts = { mode: 'read' };
+    let permission = await handle.queryPermission(opts);
+    if (permission === 'granted') {
+      return true;
+    }
+    if (permission === 'prompt') {
+      permission = await handle.requestPermission(opts);
+      return permission === 'granted';
+    }
+    return false;
+  };
+
+  const loadSvgFromHandle = async () => {
+    if (!fileHandle) {
+      return;
+    }
+    const file = await fileHandle.getFile();
+    if (file.lastModified === lastModified) {
+      return;
+    }
+    lastModified = file.lastModified;
+    const text = await file.text();
+    await displaySvg(text, file.name);
+  };
+
+  const displaySvg = async (svgText, filename = '') => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const svg = doc.documentElement;
+
+    if (!svg || svg.tagName.toLowerCase() !== 'svg') {
+      throw new Error('Arquivo selecionado nao parece ser um SVG valido.');
+    }
+
+    if (!baseViewBox) {
+      const vb = svg.getAttribute('viewBox');
+      if (vb) {
+        baseViewBox = parseViewBox(vb);
+      }
+      if (!baseViewBox) {
+        const widthAttr = svg.getAttribute('width');
+        const heightAttr = svg.getAttribute('height');
+        const width = widthAttr ? parseFloat(widthAttr) || 100 : 100;
+        const height = heightAttr ? parseFloat(heightAttr) || 100 : 100;
+        baseViewBox = { minX: 0, minY: 0, width, height };
+      }
+    }
+
+    const newWidth = baseViewBox.width / ZOOM_FACTOR;
+    const newHeight = baseViewBox.height / ZOOM_FACTOR;
+    const newMinX = baseViewBox.minX + OFFSET_X;
+    const newMinY = baseViewBox.minY + OFFSET_Y;
+
+    svg.setAttribute('viewBox', `${newMinX} ${newMinY} ${newWidth} ${newHeight}`);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+
+    const serialized = new XMLSerializer().serializeToString(svg);
+
+    clearPreview();
+    const blob = new Blob([serialized], { type: 'image/svg+xml' });
+    currentObjectUrl = URL.createObjectURL(blob);
+    preview.setAttribute('data', currentObjectUrl);
+    preview.style.display = 'block';
+
+    if (filename) {
+      updateStatus(`${filename} - atualizado ${new Date(lastModified).toLocaleTimeString()}`);
+    }
+  };
+
+  const startAutoRefresh = () => {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+    }
+    refreshTimer = setInterval(() => {
+      loadSvgFromHandle().catch((error) => {
+        console.error(error);
+        updateStatus(`Erro ao atualizar: ${error.message}`);
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      });
+    }, REFRESH_INTERVAL_MS);
+  };
+
+  const selectWithFilePicker = async () => {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [
+          {
+            description: 'Arquivos SVG',
+            accept: { 'image/svg+xml': ['.svg'] },
+          },
+        ],
+        excludeAcceptAllOption: false,
+        multiple: false,
+      });
+
+      const granted = await ensurePermission(handle);
+      if (!granted) {
+        throw new Error('Permissao de leitura negada.');
+      }
+
+      fileHandle = handle;
+      baseViewBox = null;
+      lastModified = 0;
+
+      await loadSvgFromHandle();
+      startAutoRefresh();
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        updateStatus('Selecao cancelada. Clique em "Selecionar SVG..." para tentar novamente.');
+        return;
+      }
+      console.error(error);
+      updateStatus(`Erro: ${error.message}`);
+    }
+  };
+
+  const selectWithFileInput = async () => {
+    if (!fileInput.files.length) {
+      return;
+    }
+    const file = fileInput.files[0];
+    fileHandle = null;
+    baseViewBox = null;
+    lastModified = file.lastModified;
+    const text = await file.text();
+    await displaySvg(text, file.name);
+    updateStatus(`${file.name} - recarregue manualmente apos novas edicoes.`);
+  };
+
+  pickButton.addEventListener('click', () => {
+    if (supportsFileSystemAccess()) {
+      selectWithFilePicker();
+    } else {
+      fileInput.click();
+    }
+  });
+
+  fileInput.addEventListener('change', () => {
+    selectWithFileInput().catch((error) => {
+      console.error(error);
+      updateStatus(`Erro ao abrir arquivo: ${error.message}`);
+    });
+  });
+
+  window.addEventListener('load', () => {
+    if (supportsFileSystemAccess()) {
+      selectWithFilePicker();
+    } else {
+      updateStatus('Selecione um arquivo SVG para visualizar.');
+      fileInput.click();
+    }
+  });
 </script>
