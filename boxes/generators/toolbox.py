@@ -348,6 +348,7 @@ class Latche:
     def __init__(self, boxes: Boxes) -> None:
         self.boxes = boxes
 
+
     def sec(self, r= float, c=float, b = float):
         d= c-b
         return 2 * math.sqrt(pow(r,2)-pow(d,2))
@@ -355,9 +356,9 @@ class Latche:
     def arcsec(self, r=float,c=float,b=float, x=bool):
         s = (c-b)/r
         if x:
-            return math.asin(s)*(180/math.pi)
+            return math.degrees(math.asin(s))
         else:
-            return math.acos(s)*(180/math.pi)
+            return math.degrees(math.acos(s))
 
 
 
@@ -367,28 +368,45 @@ class Latche:
         spacing = b.spacing
         width= 0
         height= 0
-        hl = self.sec(mt*3, 12,0)
-        inner_radius = mt * 2
-        outer_radius = mt * 4
-        radial_offset = outer_radius - inner_radius
+        r25 = mt*2.5
+        rm = r25 - b.burn
+        hl = self.sec(mt*3.5, r25,0) 
+        hl2 = self.sec(mt*4.5, r25,0)
+        d1 = mt*4.5 - (hl2/2)
+        cbc = 0.11
 
+        bline_lenght = 90
         b.moveTo(0,0)
-        b.polyline(mt, 90,mt,-90,mt,-90,mt,90, mt,90,mt*3,90,mt,90,mt,-90,mt,-90,mt,90,mt,90,mt*3,90)
-        b.moveTo(spacing + mt*3,0)
-        width+=mt*3 + spacing
+        b.polyline(bline_lenght,0,-bline_lenght,0)
+
+        #peça H
+        b.polyline(mt, 90,mt,-90,mt,-90,mt,90, mt,90,mt*2,90,mt*3,90,mt*2,90)
+        b.moveTo(0,mt*2 + spacing)
+
+        #peça U
         b.polyline(mt*3 ,90,mt*3,90,mt,90,mt*2,-90,mt,-90,mt*2,90,mt,90,mt*3,90)
-        b.moveTo(mt*3 + spacing + mt*2,0)
-        width+=mt*3 + spacing + mt*2
-        b.circle(0,mt*2, mt*2)
-        b.moveTo(-mt/2,mt*1.5,90)
+        b.moveTo(2* b.burn + mt*5.5 + spacing ,b.burn - spacing - mt*2)
+
+        #peça O
+        b.circle(0,rm, rm)
+        b.moveTo(-mt/2,mt*2,90)
         b.polyline(0,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt)
-        b.moveTo(-mt*1.5,-(mt*3 + spacing+mt*2),-90)
-        #b.moveTo(0,0,180)
-        #b.polyline(0, [-90,mt*2],hl/2,[-90,hl/2])
-        b.polyline(0,[90,mt*2],hl/2,self.arcsec(mt*4, mt*4,hl/2,False),0,[self.arcsec(mt*4, mt*4,hl/2,True),mt*4])
         b.moveTo(0,0,-90)
-        b.polyline(mt,-90, mt*2)
-        #b.polyline(0,[360,mt*3])
+        b.moveTo(mt*5.5 + b.burn + spacing,-mt*2-b.burn)
+
+        ##trava
+        b.polyline(0,[90,rm],hl/2,)
+        b.moveTo(0,0,self.arcsec(mt*3.5,hl/2,0,True)) 
+        b.polyline(0, [self.arcsec(mt*3.5,hl/2,0,False),mt*3.5-b.burn],)
+        b.polyline(cbc,-90,mt + 2*b.burn,-90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc)
+        b.moveTo(0,0,90 + self.arcsec(r25,d1,0,True)) 
+        b.polyline(0,[self.arcsec(r25,d1,0,False), rm],0,[90,rm],hl2/2, [90,rm],)
+        b.moveTo(0,mt*2.5,90)
+        b.circle(0,0, mt*2)
+        b.moveTo(-mt*2.5,-mt*2.5 -spacing,-90)
+
+        #trava2
+        b.polyline(self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90)
         b.ctx.stroke()
 
         #b.move(width, height, move, label=label)

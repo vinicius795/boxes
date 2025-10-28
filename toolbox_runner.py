@@ -14,14 +14,14 @@ from typing import Any, Dict, Iterable
 from boxes.generators.toolbox import ToolBox
 from boxes.scripts import boxes_main
 
-
+format = "svg"
 # Ajuste aqui os valores que deseja sobrescrever.
 # Somente os campos diferentes do padrao serao enviados ao gerador.
 TOOLBOX_CONFIG: Dict[str, Any] = {
     # Globais (Boxes)
     "thickness": 6.0,
-    "output": r"C:\Users\viniciusmoraes\Documents\caixas\osciloscopio2.svg",
-    "format": "svg",
+    "output": r"C:\Users\viniciusmoraes\Documents\caixas\osciloscopio." + format,
+    "format": format,
     "tabs": 0.0,
     "qr_code": False,
     "debug": False,
