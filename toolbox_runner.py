@@ -20,7 +20,7 @@ format = "svg"
 TOOLBOX_CONFIG: Dict[str, Any] = {
     # Globais (Boxes)
     "thickness": 6.0,
-    "output": r"C:\Users\viniciusmoraes\Documents\caixas\osciloscopio." + format,
+    "output": r"constructor." + format,
     "format": format,
     "tabs": 0.0,
     "qr_code": False,

@@ -76,21 +76,13 @@
   let lastModified = 0;
   let currentObjectUrl = null;
   let refreshTimer = null;
+  let isRefreshing = false;
 
   const supportsFileSystemAccess = () =>
     typeof window.showOpenFilePicker === 'function';
 
   const updateStatus = (message) => {
     statusEl.textContent = message ?? '';
-  };
-
-  const clearPreview = () => {
-    if (currentObjectUrl) {
-      URL.revokeObjectURL(currentObjectUrl);
-      currentObjectUrl = null;
-    }
-    preview.removeAttribute('data');
-    preview.style.display = 'none';
   };
 
   const parseViewBox = (value) => {
@@ -104,6 +96,29 @@
       };
     }
     return null;
+  };
+
+  const computeBaseViewBox = (svg) => {
+    const vb = svg.getAttribute('viewBox');
+    if (vb) {
+      const parsed = parseViewBox(vb);
+      if (parsed) {
+        return parsed;
+      }
+    }
+    const widthAttr = svg.getAttribute('width');
+    const heightAttr = svg.getAttribute('height');
+    const width = widthAttr ? parseFloat(widthAttr) : NaN;
+    const height = heightAttr ? parseFloat(heightAttr) : NaN;
+    if (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      return { minX: 0, minY: 0, width, height };
+    }
+    return { minX: 0, minY: 0, width: 100, height: 100 };
   };
 
   const ensurePermission = async (handle) => {
@@ -123,19 +138,34 @@
   };
 
   const loadSvgFromHandle = async () => {
-    if (!fileHandle) {
+    if (!fileHandle || isRefreshing) {
       return;
     }
-    const file = await fileHandle.getFile();
-    if (file.lastModified === lastModified) {
-      return;
+    isRefreshing = true;
+    try {
+      const file = await fileHandle.getFile();
+      if (file.lastModified === lastModified) {
+        return;
+      }
+      const text = await file.text();
+      await displaySvg(text, {
+        filename: file.name,
+        fileLastModified: file.lastModified,
+        shouldAnnounceUpdate: true,
+      });
+    } finally {
+      isRefreshing = false;
     }
-    lastModified = file.lastModified;
-    const text = await file.text();
-    await displaySvg(text, file.name);
   };
 
-  const displaySvg = async (svgText, filename = '') => {
+  const displaySvg = async (
+    svgText,
+    {
+      filename = '',
+      fileLastModified = null,
+      shouldAnnounceUpdate = true,
+    } = {}
+  ) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgText, 'image/svg+xml');
     const svg = doc.documentElement;
@@ -144,22 +174,10 @@
       throw new Error('Arquivo selecionado nao parece ser um SVG valido.');
     }
 
-    if (!baseViewBox) {
-      const vb = svg.getAttribute('viewBox');
-      if (vb) {
-        baseViewBox = parseViewBox(vb);
-      }
-      if (!baseViewBox) {
-        const widthAttr = svg.getAttribute('width');
-        const heightAttr = svg.getAttribute('height');
-        const width = widthAttr ? parseFloat(widthAttr) || 100 : 100;
-        const height = heightAttr ? parseFloat(heightAttr) || 100 : 100;
-        baseViewBox = { minX: 0, minY: 0, width, height };
-      }
-    }
-
-    const newWidth = baseViewBox.width / ZOOM_FACTOR;
-    const newHeight = baseViewBox.height / ZOOM_FACTOR;
+    baseViewBox = computeBaseViewBox(svg);
+    const zoom = ZOOM_FACTOR > 0 ? ZOOM_FACTOR : 1;
+    const newWidth = baseViewBox.width / zoom;
+    const newHeight = baseViewBox.height / zoom;
     const newMinX = baseViewBox.minX + OFFSET_X;
     const newMinY = baseViewBox.minY + OFFSET_Y;
 
@@ -169,14 +187,24 @@
 
     const serialized = new XMLSerializer().serializeToString(svg);
 
-    clearPreview();
     const blob = new Blob([serialized], { type: 'image/svg+xml' });
-    currentObjectUrl = URL.createObjectURL(blob);
-    preview.setAttribute('data', currentObjectUrl);
+    const nextObjectUrl = URL.createObjectURL(blob);
+    preview.setAttribute('data', nextObjectUrl);
+    preview.data = nextObjectUrl;
     preview.style.display = 'block';
+    if (currentObjectUrl) {
+      URL.revokeObjectURL(currentObjectUrl);
+    }
+    currentObjectUrl = nextObjectUrl;
 
-    if (filename) {
-      updateStatus(`${filename} - atualizado ${new Date(lastModified).toLocaleTimeString()}`);
+    const effectiveLastModified =
+      typeof fileLastModified === 'number' ? fileLastModified : Date.now();
+    lastModified = effectiveLastModified;
+
+    if (shouldAnnounceUpdate && filename) {
+      updateStatus(
+        `${filename} - atualizado ${new Date(effectiveLastModified).toLocaleTimeString()}`
+      );
     }
   };
 
@@ -188,8 +216,6 @@
       loadSvgFromHandle().catch((error) => {
         console.error(error);
         updateStatus(`Erro ao atualizar: ${error.message}`);
-        clearInterval(refreshTimer);
-        refreshTimer = null;
       });
     }, REFRESH_INTERVAL_MS);
   };
@@ -235,9 +261,12 @@
     const file = fileInput.files[0];
     fileHandle = null;
     baseViewBox = null;
-    lastModified = file.lastModified;
     const text = await file.text();
-    await displaySvg(text, file.name);
+    await displaySvg(text, {
+      filename: file.name,
+      fileLastModified: file.lastModified,
+      shouldAnnounceUpdate: false,
+    });
     updateStatus(`${file.name} - recarregue manualmente apos novas edicoes.`);
   };
 
@@ -258,10 +287,9 @@
 
   window.addEventListener('load', () => {
     if (supportsFileSystemAccess()) {
-      selectWithFilePicker();
+      updateStatus('Clique em "Selecionar SVG..." para escolher um arquivo.');
     } else {
-      updateStatus('Selecione um arquivo SVG para visualizar.');
-      fileInput.click();
+      updateStatus('Clique em "Selecionar SVG..." e escolha um arquivo SVG (atualizacao automatica indisponivel neste navegador).');
     }
   });
 </script>

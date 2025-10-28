@@ -375,7 +375,7 @@ class Latche:
         d1 = mt*4.5 - (hl2/2)
         cbc = 0.11
 
-        bline_lenght = 90
+        bline_lenght = 100
         b.moveTo(0,0)
         b.polyline(bline_lenght,0,-bline_lenght,0)
 
@@ -384,15 +384,17 @@ class Latche:
         b.moveTo(0,mt*2 + spacing)
 
         #peça U
-        b.polyline(mt*3 ,90,mt*3,90,mt,90,mt*2,-90,mt,-90,mt*2,90,mt,90,mt*3,90)
-        b.moveTo(2* b.burn + mt*5.5 + spacing ,b.burn - spacing - mt*2)
+        
+        #b.moveTo(2* b.burn + mt*5.5 + spacing ,b.burn - spacing - mt*2)
+
+        b.polyline(self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90)
 
         #peça O
         b.circle(0,rm, rm)
         b.moveTo(-mt/2,mt*2,90)
         b.polyline(0,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt)
         b.moveTo(0,0,-90)
-        b.moveTo(mt*5.5 + b.burn + spacing,-mt*2-b.burn)
+        b.moveTo(mt*5.5 + b.burn + spacing,-mt*2-b.burn) 
 
         ##trava
         b.polyline(0,[90,rm],hl/2,)
@@ -407,7 +409,7 @@ class Latche:
 
         #trava2
         b.polyline(self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90)
-        b.ctx.stroke()
+        b.ctx.stroke()  
 
         #b.move(width, height, move, label=label)
     
