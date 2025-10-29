@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable
 from boxes.generators.toolbox import ToolBox
 from boxes.scripts import boxes_main
 
-format = "svg"
+format = "dxf"
 # Ajuste aqui os valores que deseja sobrescrever.
 # Somente os campos diferentes do padrao serao enviados ao gerador.
 TOOLBOX_CONFIG: Dict[str, Any] = {
@@ -25,7 +25,7 @@ TOOLBOX_CONFIG: Dict[str, Any] = {
     "tabs": 0.0,
     "qr_code": False,
     "debug": False,
-    "labels": False,
+    "labels": True,
     "reference": 100.0,
     "verbose": False,
     "inner_corners": "dogbone",

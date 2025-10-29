@@ -366,28 +366,32 @@ class Latche:
         b = self.boxes
         mt = b.thickness
         spacing = b.spacing
-        width= 0
-        height= 0
         r25 = mt*2.5
         rm = r25 - b.burn
         hl = self.sec(mt*3.5, r25,0) 
         hl2 = self.sec(mt*4.5, r25,0)
         d1 = mt*4.5 - (hl2/2)
         cbc = 0.11
+        height = mt*5+hl2/2
+        width = mt*13+2*spacing
+        
+        if b.move(width, height, move, before=True, label=label):
+            return
 
-        bline_lenght = 100
+
         b.moveTo(0,0)
-        b.polyline(bline_lenght,0,-bline_lenght,0)
 
         #peça H
         b.polyline(mt, 90,mt,-90,mt,-90,mt,90, mt,90,mt*2,90,mt*3,90,mt*2,90)
         b.moveTo(0,mt*2 + spacing)
 
         #peça U
-        
-        #b.moveTo(2* b.burn + mt*5.5 + spacing ,b.burn - spacing - mt*2)
+        b.polyline(mt*3 ,90,mt*3,90,mt,90,mt*2,-90,mt,-90,mt*2,90,mt,90,mt*3,90)
+        b.moveTo(mt*3+2*b.burn + spacing,2*b.burn + mt*3)
 
+        #peça []
         b.polyline(self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90)
+        b.moveTo(mt*2.5,-mt*5-spacing)
 
         #peça O
         b.circle(0,rm, rm)
@@ -402,16 +406,13 @@ class Latche:
         b.polyline(0, [self.arcsec(mt*3.5,hl/2,0,False),mt*3.5-b.burn],)
         b.polyline(cbc,-90,mt + 2*b.burn,-90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc)
         b.moveTo(0,0,90 + self.arcsec(r25,d1,0,True)) 
-        b.polyline(0,[self.arcsec(r25,d1,0,False), rm],0,[90,rm],hl2/2, [90,rm],)
+        b.polyline(0,[self.arcsec(r25,d1,0,False), rm],0,[90,rm],hl2/2, [90,rm])
         b.moveTo(0,mt*2.5,90)
         b.circle(0,0, mt*2)
-        b.moveTo(-mt*2.5,-mt*2.5 -spacing,-90)
+        b.moveTo(-mt*2.5,-mt*2.5)
 
-        #trava2
-        b.polyline(self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90)
-        b.ctx.stroke()  
-
-        #b.move(width, height, move, label=label)
+        b.ctx.stroke()
+        b.move(width, height, move, label=label)
     
 
 
@@ -538,7 +539,11 @@ as internal or external measurements."""
         self.rectangularWall(x, half_height, "FFuF", move="right", label="Lower Wall 1")
         self.rectangularWall(y, half_height, "Ffef", move="up", label="Lower Wall 2")
         self.rectangularWall(x, half_height, "FFeF", move="left right", label="Lower Wall 3")
-        self.rectangularWall(y, half_height, "Ffef", move="up", label="Lower Wall 4")
+        self.rectangularHole(-x-spacing + x/4,half_height, material_thickness, material_thickness)
+        self.rectangularHole(-x-spacing + x/4,half_height-2*material_thickness+self.burn, material_thickness, material_thickness)
+        self.rectangularHole(-spacing-x/4,half_height, material_thickness, material_thickness)
+        self.rectangularHole(-spacing-x/4,half_height-2*material_thickness+self.burn, material_thickness, material_thickness)
+        self.rectangularWall(y, half_height, "Ffef", move="up", label="Lower Wall 4") 
 
         self.moveTo(-(x + move_spacing), 0)
 
@@ -553,15 +558,16 @@ as internal or external measurements."""
         self.rectangularWall(y, half_height, "efFf", move="up", label="Upper Wall 4")
 
         stacked_height = 2 * half_height + y + 3 * spacing
-        self.moveTo(-(x + move_spacing), stacked_height + spacing)
+        self.moveTo(-x-2*spacing, 0)
 
         # Shrink divider slightly on both axes to keep it from binding.
-        #divider_edges = f"{positive_edge_char}eee"
-        #self.rectangularWall(divider_width, divider_height, divider_edges, move="right", label="Divider")
+        divider_edges = f"{positive_edge_char}eee"
+        self.rectangularWall(divider_width, divider_height, divider_edges, move="right", label="Divider")
+        self.moveTo(3* spacing)
 
-        #handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
-        #handle_piece.render(move="right", label="Handle")
-        #self.edges['u'].parts(move="right right right ")
+        handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
+        handle_piece.render(move="right", label="Handle")
+        self.edges['u'].parts(move="right right right") 
 
         latche_piece = Latche(self)
         latche_piece.render()
