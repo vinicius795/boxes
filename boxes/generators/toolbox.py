@@ -19,6 +19,8 @@ from contextlib import contextmanager
 
 from boxes import *
 
+F_FORMAT: str = "dxf"
+
 
 class FingerJointPositivePlayEdge(edges.FingerJointEdge):
     """Finger joint edge that also shrinks tabs according to play."""
@@ -299,6 +301,228 @@ class CustomCabinetHingeEdge(edges.BaseEdge):
         self.move(th, tw, move, label="hinges")
 
 
+class LatcheEdge(edges.BaseEdge):
+    """Custom edge and parts for the toolbox latch (trava).
+
+    - As an edge: currently behaves like a straight edge, keeping
+      compatibility with existing walls while the latch is placed as a
+      separate part.
+    - As parts: renders the latch geometry directly.
+    """
+
+    char = "r"
+    description = "Toolbox latch (edge + parts)"
+
+    def __init__(self, boxes, settings=None, char_code: str = 'r') -> None:
+        super().__init__(boxes, settings)
+        # support two registrations from the same class: 'r' and 'R'
+        if char_code in ('r', 'R'):
+            self.char = char_code
+
+    def __call__(self, length, **kw):
+        # Draw latch-related holes repeated along this edge, then draw the edge line.
+        b = self.boxes
+        t = self.thickness
+        count = max(0, int(getattr(b, "latche_count", 0) or 0))
+
+        # Dimensions derived from the latch profile
+        # Disc that passes through panel ("peça O"): radius r25, center y at r25
+        r25 = 2.5 * t
+        y_disc = r25
+
+        if self.char == 'R':
+            # Draw repeated rectangles at y = 1.5*t from the edge
+            # height = t; width = sec(r25, mt*4.5 - (hl2/2), 0)/2 + cbc
+            if count > 0 and length > 0:
+                segment = length / float(count)
+                mt = t
+                r25 = 2.5 * mt
+                hl2 = self._sec(4.5 * mt, r25, 0.0)
+                # corner blend compensation (cbc): default small value,
+                # but if inner corners use dogbone, follow user's dogbone size
+                cbc = 0.11
+                if getattr(b, "inner_corners", None) == "dogbone":
+                    if getattr(b, "D", None):
+                        cbc = b.D
+                    else:
+                        cbc = getattr(b, "R", cbc)
+                rect_w = self._sec(r25, 4.5 * mt - (hl2 / 2.0), 0.0) / 2.0 + cbc
+                rect_h = mt
+                # distance from edge to lower rectangle edge = t -> center at 1.5*t
+                y_center = 1.0 * mt + rect_h / 2.0
+                for i in range(count):
+                    cx = (i + 0.5) * segment
+                    with self.saved_context():
+                        self.moveTo(cx, 0)
+                        # place rectangle so its left edge coincides with the previous center (x=0)
+                        self.rectangularHole(-cbc, y_center, rect_w, rect_h, center_x=False)
+
+            self.edge(length, tabs=2)
+            return
+
+        if count > 0 and length > 0:
+            segment = length / float(count)
+            dx = t
+            # rotate the pair of centers by +45° around their midpoint
+            offset = t / math.sqrt(2.0)
+            # Place the LOWER diamond center at exactly 2.5*t from the edge.
+            # Empirically, inner kerf compensation shifts the apparent center
+            # by burn/√2. Compensate here to keep the measured distance exact.
+            y_center = 2.5 * t + offset - (self.burn / math.sqrt(2.0))
+            self.ctx.save()
+            try:
+                for i in range(count):
+                    cx = (i + 0.5) * segment
+                    # two diamonds (squares @45°) with inner corners that remain machinable
+                    self._diamond_hole(cx - offset, y_center - offset, dx, angle=45)
+                    self._diamond_hole(cx + offset, y_center + offset, dx, angle=45)
+            finally:
+                self.ctx.restore()
+
+        # Keep the wall edge straight
+        self.edge(length, tabs=2)
+
+    def parts(self, move: str | None = None) -> None:
+        self._render_latch(move=move or "", label="Latche")
+
+    @holeCol
+    def _diamond_hole(self, cx: float, cy: float, side: float, angle: float = 45.0):
+        # Draw a rotated square hole while preserving -90 degree inner corners.
+        s = side
+        rad = math.radians(angle)
+        start_x = cx + (-0.5 * s) * math.cos(rad)
+        start_y = cy + (-0.5 * s) * math.sin(rad)
+
+        self.moveTo(start_x, start_y, angle)
+        self.edge(0.5 * s)
+        for d in (s, s, s, 0.5 * s):
+            self.corner(-90, 0)
+            self.edge(d)
+
+    # Helper used by the latch geometry
+    def _sec(self, r: float, c: float, b_: float = 0.0) -> float:
+        d = c - b_
+        val = r * r - d * d
+        if val < 0:
+            val = 0.0
+        return 2.0 * math.sqrt(val)
+
+    def _render_latch(self, move: str, label: str) -> None:
+        b = self.boxes
+        mt = b.thickness
+        spacing = b.spacing
+        count = max(0, int(getattr(b, "latche_count", 0) or 0))
+        # Draw as many latch assemblies as requested by ``latche_count``.
+        if count <= 0:
+            return
+        r25 = 2.5 * mt
+        rm = r25 - b.burn
+        hl = self._sec(3.5 * mt, r25, 0.0)
+        hl2 = self._sec(4.5 * mt, r25, 0.0)
+        d1 = 4.5 * mt - (hl2 / 2.0)
+        cbc = 0.11
+        if b.inner_corners == "dogbone":
+            cbc = b.D if getattr(b, "D", 0.0) else getattr(b, "R", cbc)
+        height = 5.0 * mt + hl2 / 2.0
+        width = 13.0 * mt + 2.0 * spacing
+        segment = self._sec(r25, 4.5 * mt - (hl2 / 2.0), 0.0) / 2.0 + cbc
+        stride = width + spacing
+        total_width = width + (count - 1) * stride if count > 1 else width
+        layout_label = label if count == 1 else f"{label} x{count}"
+
+        if b.move(total_width, height, move, before=True, label=layout_label):
+            return
+
+        for idx in range(count):
+            offset = idx * stride
+            with b.saved_context():
+                b.ctx.translate(offset, 0.0)
+                self._draw_latch_assembly(mt, spacing, r25, rm, hl, hl2, d1, cbc, segment)
+
+        b.ctx.stroke()
+        b.move(total_width, height, move, label=layout_label)
+
+    def _draw_latch_assembly(
+        self,
+        mt: float,
+        spacing: float,
+        r25: float,
+        rm: float,
+        hl: float,
+        hl2: float,
+        d1: float,
+        cbc: float,
+        segment: float,
+    ) -> None:
+        b = self.boxes
+        burn = b.burn
+
+        # Piece u
+        b.moveTo(0, 0)
+        b.polyline(mt, 90, mt, -90, mt, -90, mt, 90, mt, 90, mt * 2, 90, mt * 3, 90, mt * 2, 90)
+        b.moveTo(0, mt * 2 + spacing)
+
+        # Piece U
+        b.polyline(mt * 3, 90, mt * 3, 90, mt, 90, mt * 2, -90, mt, -90, mt * 2, 90, mt, 90, mt * 3, 90)
+        b.moveTo(mt * 3 + 2 * burn + spacing, 2 * burn + mt * 3)
+
+        # Piece []
+        b.polyline(segment, 90, mt * 2, 90, segment, 90, mt * 2, 90)
+        b.moveTo(mt * 2.5, -mt * 5 - spacing)
+
+        # Piece O
+        b.circle(0, rm, rm)
+        b.moveTo(-mt / 2.0, mt * 2, 90)
+        b.polyline(
+            0,
+            90,
+            mt,
+            -90,
+            mt,
+            -90,
+            mt,
+            90,
+            mt,
+            -90,
+            mt,
+            -90,
+            mt,
+            90,
+            mt,
+            -90,
+            mt,
+            -90,
+            mt,
+            90,
+            mt,
+            -90,
+            mt,
+            -90,
+            mt,
+        )
+        b.moveTo(0, 0, -90)
+        b.moveTo(mt * 5.5 + burn + spacing, -mt * 2 - burn)
+
+        # Locker
+        b.polyline(0, [90, rm], hl / 2.0)
+        b.moveTo(0, 0, self._arcsec(3.5 * mt, hl / 2.0, 0.0, True))
+        b.polyline(0, [self._arcsec(3.5 * mt, hl / 2.0, 0.0, False), 3.5 * mt - burn])
+        b.polyline(cbc, -90, mt + 2 * burn, -90, segment)
+        b.moveTo(0, 0, 90 + self._arcsec(r25, d1, 0.0, True))
+        b.polyline(0, [self._arcsec(r25, d1, 0.0, False), rm], 0, [90, rm], hl2 / 2.0, [90, rm])
+        b.moveTo(0, mt * 2.5, 90)
+        b.circle(0, 0, self._locker_radius(mt, mt * 3.0))
+        b.moveTo(-mt * 2.5, -mt * 2.5)
+
+    def _arcsec(self, radius: float, chord: float, base: float, use_sine: bool) -> float:
+        quotient = (chord - base) / radius
+        angle = math.asin(quotient) if use_sine else math.acos(quotient)
+        return math.degrees(angle)
+
+    def _locker_radius(self, x_val: float, y_val: float) -> float:
+        return math.sqrt(x_val * x_val + y_val * y_val) / 2.0
+
+
 class Handle:
     """Custom handle profile."""
 
@@ -341,79 +565,6 @@ class Handle:
         b.ctx.stroke()
 
         b.move(self.width, self.height, move, label=label)
-
-
-class Latche:
-
-    def __init__(self, boxes: Boxes) -> None:
-        self.boxes = boxes
-
-
-    def sec(self, r= float, c=float, b = float):
-        d= c-b
-        return 2 * math.sqrt(pow(r,2)-pow(d,2))
-    
-    def arcsec(self, r=float,c=float,b=float, x=bool):
-        s = (c-b)/r
-        if x:
-            return math.degrees(math.asin(s))
-        else:
-            return math.degrees(math.acos(s))
-
-
-
-    def render(self, move: str = "", label: str = "Latche") -> None:
-        b = self.boxes
-        mt = b.thickness
-        spacing = b.spacing
-        r25 = mt*2.5
-        rm = r25 - b.burn
-        hl = self.sec(mt*3.5, r25,0) 
-        hl2 = self.sec(mt*4.5, r25,0)
-        d1 = mt*4.5 - (hl2/2)
-        cbc = 0.11
-        height = mt*5+hl2/2
-        width = mt*13+2*spacing
-        
-        if b.move(width, height, move, before=True, label=label):
-            return
-
-
-        b.moveTo(0,0)
-
-        #peça H
-        b.polyline(mt, 90,mt,-90,mt,-90,mt,90, mt,90,mt*2,90,mt*3,90,mt*2,90)
-        b.moveTo(0,mt*2 + spacing)
-
-        #peça U
-        b.polyline(mt*3 ,90,mt*3,90,mt,90,mt*2,-90,mt,-90,mt*2,90,mt,90,mt*3,90)
-        b.moveTo(mt*3+2*b.burn + spacing,2*b.burn + mt*3)
-
-        #peça []
-        b.polyline(self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc,90,mt*2,90)
-        b.moveTo(mt*2.5,-mt*5-spacing)
-
-        #peça O
-        b.circle(0,rm, rm)
-        b.moveTo(-mt/2,mt*2,90)
-        b.polyline(0,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt)
-        b.moveTo(0,0,-90)
-        b.moveTo(mt*5.5 + b.burn + spacing,-mt*2-b.burn) 
-
-        ##trava
-        b.polyline(0,[90,rm],hl/2,)
-        b.moveTo(0,0,self.arcsec(mt*3.5,hl/2,0,True)) 
-        b.polyline(0, [self.arcsec(mt*3.5,hl/2,0,False),mt*3.5-b.burn],)
-        b.polyline(cbc,-90,mt + 2*b.burn,-90,self.sec(r25, mt*4.5 - (hl2/2),0)/2 + cbc)
-        b.moveTo(0,0,90 + self.arcsec(r25,d1,0,True)) 
-        b.polyline(0,[self.arcsec(r25,d1,0,False), rm],0,[90,rm],hl2/2, [90,rm])
-        b.moveTo(0,mt*2.5,90)
-        b.circle(0,0, mt*2)
-        b.moveTo(-mt*2.5,-mt*2.5)
-
-        b.ctx.stroke()
-        b.move(width, height, move, label=label)
-    
 
 
 class ToolBox(Boxes):
@@ -479,11 +630,18 @@ as internal or external measurements."""
             type=float,
             default=None,
             help="folga adicional (em mm) aplicada nas dimensoes do divisor")
+        self.argparser.add_argument(
+            "--latche_count",
+            action="store",
+            type=int,
+            default=0,
+            help="quantidade de travas (latches) distribuídas ao longo da borda 'r'")
 
     def open(self) -> None:
         super().open()
         self._override_cabinet_hinge_edges()
         self._register_custom_finger_edges()
+        self._register_latche_edge()
     
     def _override_cabinet_hinge_edges(self) -> None:
         base_edge = self.edges.get('u')
@@ -502,6 +660,11 @@ as internal or external measurements."""
         divider_edge = FingerJointDividerEdge(self, base_edge.settings)
         self.addPart(positive_play_edge)
         self.addPart(divider_edge)
+
+    def _register_latche_edge(self) -> None:
+        # Register the custom latch edge/parts under a dedicated character.
+        self.addPart(LatcheEdge(self, char_code='r'))
+        self.addPart(LatcheEdge(self, char_code='R'))
 
     def _positive_finger_edge_char(self) -> str:
         return 'x' if self.edges.get('x') is not None else 'f'
@@ -538,14 +701,10 @@ as internal or external measurements."""
 
         self.rectangularWall(x, half_height, "FFuF", move="right", label="Lower Wall 1")
         self.rectangularWall(y, half_height, "Ffef", move="up", label="Lower Wall 2")
-        self.rectangularWall(x, half_height, "FFeF", move="left right", label="Lower Wall 3")
-        self.rectangularHole(-x-spacing + x/4,half_height, material_thickness, material_thickness)
-        self.rectangularHole(-x-spacing + x/4,half_height-2*material_thickness+self.burn, material_thickness, material_thickness)
-        self.rectangularHole(-spacing-x/4,half_height, material_thickness, material_thickness)
-        self.rectangularHole(-spacing-x/4,half_height-2*material_thickness+self.burn, material_thickness, material_thickness)
+        self.rectangularWall(x, half_height, "FFrF", move="left right", label="Lower Wall 3")
         self.rectangularWall(y, half_height, "Ffef", move="up", label="Lower Wall 4") 
 
-        self.moveTo(-(x + move_spacing), 0)
+        self.moveTo(-(x + move_spacing), 0) 
 
         self._render_bottom_panel(x, y, positive_edge_char)
         self.rectangularWall(x, y, positive_edge_char * 4, move="up", label="Top")
@@ -554,7 +713,7 @@ as internal or external measurements."""
 
         self.rectangularWall(x, half_height, "UFFF", move="right", label="Upper Wall 1")
         self.rectangularWall(y, half_height, "efFf", move="up", label="Upper Wall 2")
-        self.rectangularWall(x, half_height, "eFFF", move="left right", label="Upper Wall 3")
+        self.rectangularWall(x, half_height, "RFFF", move="left right", label="Upper Wall 3")
         self.rectangularWall(y, half_height, "efFf", move="up", label="Upper Wall 4")
 
         stacked_height = 2 * half_height + y + 3 * spacing
@@ -567,10 +726,12 @@ as internal or external measurements."""
 
         handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
         handle_piece.render(move="right", label="Handle")
-        self.edges['u'].parts(move="right right right") 
+        self.edges['u'].parts(move="right right right")
 
-        latche_piece = Latche(self)
-        latche_piece.render()
+        # Render the latch using the custom LatcheEdge parts.
+        latche_edge = self.edges.get('r')
+        if latche_edge is not None:
+            latche_edge.parts()
 
     def _render_bottom_panel(self, width: float, depth: float, positive_char: str) -> None:
         """Render bottom panel and include divider slots if the custom edge exists."""
