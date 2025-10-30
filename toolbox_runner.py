@@ -11,10 +11,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
-from boxes.generators.toolbox import ToolBox
+from boxes.generators.toolbox import ToolBox, F_FORMAT
 from boxes.scripts import boxes_main
 
-format = "dxf"
+format = F_FORMAT
 # Ajuste aqui os valores que deseja sobrescrever.
 # Somente os campos diferentes do padrao serao enviados ao gerador.
 TOOLBOX_CONFIG: Dict[str, Any] = {
@@ -25,12 +25,12 @@ TOOLBOX_CONFIG: Dict[str, Any] = {
     "tabs": 0.0,
     "qr_code": False,
     "debug": False,
-    "labels": True,
+    "labels": False,
     "reference": 100.0,
     "verbose": False,
     "inner_corners": "dogbone",
     "R": None,
-    "D": 2.0,
+    "D": 2,
     "burn": 0.1,
     # Especificos do ToolBox
     "x": 335.0,
@@ -39,12 +39,13 @@ TOOLBOX_CONFIG: Dict[str, Any] = {
     "outside": False,
     "custom_spacing": 10.2,
     "handle": True,
-    "handle_height": 110.0,
-    "handle_width": 210.0,
-    "handle_thickness": 60.0,
-    "handle_gap": 50.0,
+    "handle_height": 100.0,
+    "handle_width": 220.0,
+    "handle_thickness": 65.0,
+    "handle_gap": 70.0,
     "divider_hole_offset": 60.0,
     "divider_clearance": 5.0,
+    "latche_count": 2,
     # Configuracoes FingerJoint (multiplicadores da espessura onde indicado)
     "FingerJoint_style": "rectangular",
     "FingerJoint_surroundingspaces": 2.0,
