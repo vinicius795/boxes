@@ -197,7 +197,7 @@ class Path:
         for c in self.path:
             C = c[0]
             c[1], c[2] = m * (c[1], c[2])
-            if C == 'C':
+            if C in ('C', 'I'):
                 c[3], c[4] = m * (c[3], c[4])
                 c[5], c[6] = m * (c[5], c[6])
             if C == "T":
@@ -209,15 +209,17 @@ class Path:
         if inner_corners == "backarc":
             return
 
+        lw = max(self.params.get("lw", 0.05), 0.01)
+
         for (i, p) in enumerate(self.path):
-            if p[0] == "C" and i > 1 and i < len(self.path) - 1:
+            if p[0] in ("C", "I") and i > 1 and i < len(self.path) - 1:
                 if self.path[i - 1][0] == "L" and self.path[i + 1][0] == "L":
                     p11 = self.path[i - 2][1:3]
                     p12 = self.path[i - 1][1:3]
                     p21 = p[1:3]
                     p22 = self.path[i + 1][1:3]
                     if (((p12[0]-p21[0])**2 + (p12[1]-p21[1])**2) >
-                        self.params["lw"]**2):
+                        lw**2):
                         continue
                     lines_intersect, x, y = line_intersection((p11, p12), (p21, p22))
                     if lines_intersect:
@@ -305,8 +307,17 @@ class Context:
         self._line_to(x, y)
 
     def _arc(self, xc, yc, radius, angle1, angle2, direction):
-        if abs(angle1 - angle2) < EPS or radius < EPS:
+        if abs(angle1 - angle2) < EPS:
             return
+        zero_radius_inner = radius < EPS and direction < 0
+        prev_xy = self._xy
+        prev_mxy = self._mxy
+        if radius < EPS:
+            if direction < 0:
+                lw = getattr(self, "_lw", 0.0) or 0.05
+                radius = max(lw, EPS)
+            else:
+                return
         x1, y1 = radius * math.cos(angle1) + xc, radius * math.sin(angle1) + yc
         x4, y4 = radius * math.cos(angle2) + xc, radius * math.sin(angle2) + yc
 
@@ -331,9 +342,17 @@ class Context:
         mxc, myc = self._m * (xc, yc)
 
         self._add_move()
-        self._dwg.append("C", mx4, my4, mx2, my2, mx3, my3)
-        self._xy = (x4, y4)
-        self._mxy = (mx4, my4)
+        if zero_radius_inner:
+            dx = prev_mxy[0] - mx4
+            dy = prev_mxy[1] - my4
+            self._dwg.append("I", prev_mxy[0], prev_mxy[1],
+                             mx2 + dx, my2 + dy, mx3 + dx, my3 + dy)
+            self._xy = prev_xy
+            self._mxy = prev_mxy
+        else:
+            self._dwg.append("C", mx4, my4, mx2, my2, mx3, my3)
+            self._xy = (x4, y4)
+            self._mxy = (mx4, my4)
 
     def arc(self, xc, yc, radius, angle1, angle2):
         self._arc(xc, yc, radius, angle1, angle2, 1)
