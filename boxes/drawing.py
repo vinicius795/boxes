@@ -197,7 +197,7 @@ class Path:
         for c in self.path:
             C = c[0]
             c[1], c[2] = m * (c[1], c[2])
-            if C in ('C', 'I'):
+            if C == 'C':
                 c[3], c[4] = m * (c[3], c[4])
                 c[5], c[6] = m * (c[5], c[6])
             if C == "T":
@@ -206,31 +206,87 @@ class Path:
                     c[3] *= Affine.scale(1, -1)
 
     def faster_edges(self, inner_corners):
-        if inner_corners == "backarc":
-            return
-
-        lw = max(self.params.get("lw", 0.05), 0.01)
-
         for (i, p) in enumerate(self.path):
-            if p[0] in ("C", "I") and i > 1 and i < len(self.path) - 1:
+            if p[0] == "I":
+                #print("entrou")
+                self._inner_corner(inner_corners, i, p)
+           
+            elif p[0] == "C" and i > 1 and i < len(self.path) - 1:
                 if self.path[i - 1][0] == "L" and self.path[i + 1][0] == "L":
                     p11 = self.path[i - 2][1:3]
                     p12 = self.path[i - 1][1:3]
                     p21 = p[1:3]
                     p22 = self.path[i + 1][1:3]
                     if (((p12[0]-p21[0])**2 + (p12[1]-p21[1])**2) >
-                        lw**2):
+                        self.params["lw"]**2):
                         continue
                     lines_intersect, x, y = line_intersection((p11, p12), (p21, p22))
                     if lines_intersect:
                         self.path[i - 1] = ("L", x, y)
                         if inner_corners == "loop":
                             self.path[i] = ("C", x, y, *p12, *p21)
+                        elif inner_corners == "backarc":
+                            return
                         else:
                             self.path[i] =  ("L", x, y)
         # filter duplicates
         if len(self.path) > 1: # no need to find duplicates if only one element in path
             self.path = [p for n, p in enumerate(self.path) if p != self.path[n-1]]
+    
+    def _inner_corner(self, inner_corners, i, p):
+        p11 = self.path[i - 2][1:3]
+        p12 = self.path[i - 1][1:3]
+        p21 = p[1:3]
+        p22 = self.path[i + 1][1:3]
+        lines_intersect, x, y = line_intersection((p11, p12), (p21, p22))
+        if inner_corners == "backarc":
+            # extend incoming segment slightly so the arc has room
+            cmd = self.path[i - 1]
+            dx = p12[0] - p11[0]
+            dy = p12[1] - p11[1]
+            length = math.hypot(dx, dy)
+            if length > EPS:
+                start_dx = dx / length * 0.05
+                start_dy = dy / length * 0.05
+                cmd[1] = p12[0] + start_dx
+                cmd[2] = p12[1] + start_dy
+                start_perp_x = -dy / length
+                start_perp_y = dx / length
+            else:
+                start_dx = start_dy = 0.0
+                start_perp_x = start_perp_y = 0.0
+
+            # retract arc end along the following segment to keep the same offset
+            ndx = p22[0] - p21[0]
+            ndy = p22[1] - p21[1]
+            nlen = math.hypot(ndx, ndy)
+            if nlen > EPS:
+                end_dx = -ndx / nlen * 0.05
+                end_dy = -ndy / nlen * 0.05
+                p[1] = p21[0] + end_dx
+                p[2] = p21[1] + end_dy
+                end_perp_x = -ndy / nlen
+                end_perp_y = ndx / nlen
+            else:
+                end_dx = end_dy = 0.0
+                end_perp_x = end_perp_y = 0.0
+
+            # shift control points only along the perpendicular component of the offset
+            start_perp_offset = start_dx * start_perp_x + start_dy * start_perp_y
+            end_perp_offset = end_dx * end_perp_x + end_dy * end_perp_y
+            p[3] += start_perp_x * start_perp_offset
+            p[4] += start_perp_y * start_perp_offset
+            p[5] += end_perp_x * end_perp_offset
+            p[6] += end_perp_y * end_perp_offset
+            p[0] = "C"
+            return
+        elif inner_corners == "loop":
+            del self.path[i]
+            return
+        elif inner_corners == "corner":
+            del self.path[i]
+            return
+
 
 class Context:
     def __init__(self, surface, *al, **ad) -> None:
@@ -316,6 +372,7 @@ class Context:
             if direction < 0:
                 lw = getattr(self, "_lw", 0.0) or 0.05
                 radius = max(lw, EPS)
+                xc = yc = radius
             else:
                 return
         x1, y1 = radius * math.cos(angle1) + xc, radius * math.sin(angle1) + yc
@@ -341,15 +398,14 @@ class Context:
         mx4, my4 = self._m * (x4, y4)
         mxc, myc = self._m * (xc, yc)
 
-        self._add_move()
         if zero_radius_inner:
             dx = prev_mxy[0] - mx4
             dy = prev_mxy[1] - my4
-            self._dwg.append("I", prev_mxy[0], prev_mxy[1],
-                             mx2 + dx, my2 + dy, mx3 + dx, my3 + dy)
+            self._dwg.append("I", prev_mxy[0], prev_mxy[1],mx2 + dx, my2 + dy, mx3 + dx, my3 + dy)
             self._xy = prev_xy
             self._mxy = prev_mxy
         else:
+            self._add_move()
             self._dwg.append("C", mx4, my4, mx2, my2, mx3, my3)
             self._xy = (x4, y4)
             self._mxy = (mx4, my4)
