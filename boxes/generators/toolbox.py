@@ -103,6 +103,8 @@ class CustomCabinetHingeEdge(edges.BaseEdge):
 
     def _handle_profile_requirements(self) -> tuple[float, float, float] | None:
         """Return (inner_span, required_length, handle_thickness) for the handle fingers."""
+        if not getattr(self.boxes, "handle", True):
+            return None
         handle_width = getattr(self.boxes, "handle_width", None)
         handle_thickness = getattr(self.boxes, "handle_thickness", None)
         if handle_width is None or handle_thickness is None:
@@ -473,33 +475,7 @@ class LatcheEdge(edges.BaseEdge):
         # Piece O
         b.circle(0, rm, rm)
         b.moveTo(-mt / 2.0, mt * 2, 90)
-        b.polyline(
-            0,
-            90,
-            mt,
-            -90,
-            mt,
-            -90,
-            mt,
-            90,
-            mt,
-            -90,
-            mt,
-            -90,
-            mt,
-            90,
-            mt,
-            -90,
-            mt,
-            -90,
-            mt,
-            90,
-            mt,
-            -90,
-            mt,
-            -90,
-            mt,
-        )
+        b.polyline(0,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,90,mt,-90,mt,-90,mt,)
         b.moveTo(0, 0, -90)
         b.moveTo(mt * 5.5 + burn + spacing, -mt * 2 - burn)
 
@@ -591,7 +567,7 @@ as internal or external measurements."""
         self.argparser.add_argument(
             "--handle",
             action="store",
-            type=bool,
+            type=boolarg,
             default=True,
             help="gera a peca de alca (True/False)")
         self.argparser.add_argument(
@@ -724,8 +700,9 @@ as internal or external measurements."""
         self.rectangularWall(divider_width, divider_height, divider_edges, move="right", label="Divider")
         self.moveTo(3* spacing)
 
-        handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
-        handle_piece.render(move="right", label="Handle")
+        if self.handle:
+            handle_piece = Handle(self, width=handle_width, height=handle_height, thickness=handle_thickness, gap=handle_gap)
+            handle_piece.render(move="right", label="Handle")
         self.edges['u'].parts(move="right right right")
 
         # Render the latch using the custom LatcheEdge parts.
